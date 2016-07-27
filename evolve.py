@@ -43,6 +43,7 @@ parser.add_argument('-s0', metavar="<s0>", type=float, default='0.0001', help='l
 parser.add_argument('-s1', metavar="<s1>", type=float, default='0.0001', help='log sigma of p1 (default = 0.0001 )')
 parser.add_argument('-maxage', metavar="<maxage>", type=float, default='8', help='log max age in years (default = 8 )')
 parser.add_argument('-birthrate', metavar="<birthrate>", type=float, default='100', help='birth rate in years (default = 100 )')
+parser.add_argument('-stepsize', metavar="<stepsize>", type=float, default='1', help='update step in units of birthrate (default = 1 )')
 parser.add_argument('-npsr', metavar="<npsr>", type=int, default='100000', help='total number of pulsars to generate (default = 100000 )')
 parser.add_argument('-iseed', metavar="<iseed>", type=int, default='4', help='integer seed for a pseudo-random number generator (default = 4)')
 parser.add_argument('-file', metavar="<file>", default='ppdot.dat', help='ppdot file (default = psr.list)')
@@ -57,6 +58,7 @@ s0_0 = args.s0
 s1_0 = args.s1
 maxage = args.maxage
 birthrate = args.birthrate
+stepsize = args.stepsize
 npsrs = args.npsr
 iseed = args.iseed
 file = args.file
@@ -92,35 +94,46 @@ print dropped_pulsars.shape
 total_steps = npsrs
 dead_pulsars = 0
 detected = 0
+tot_dead_pulsars = 0
 for i in range(total_steps):
-    print "Loop info: ", i, "killed: ", dead_pulsars," remaining: ", current_pulsars, "detected: ", detected
+    print "Loop info: ", i, "killed: ", tot_dead_pulsars," remaining: ", current_pulsars, "detected: ", detected
     time = (i+1) * birthrate
-    braking_sigma = 5. / (np.sqrt(time))
-    braking_noise = braking_sigma * np.random.randn(current_pulsars) + 1.0
+
 #    braking_noise = np.full(current_pulsars, 1.0)
 # update p0
     psr_array[:,0] += psr_array[:,1] * stepSec
-# update p1
-    psr_array[:,1] = np.power(psr_array[:,2],2)/np.power(bk10,2)/psr_array[:,0] * np.abs(braking_noise)
+
+# update p1 only in user-defined multiples of birthrate
+    if np.mod(time, stepsize * birthrate) == 0:
+        braking_sigma = 5. / (np.sqrt(time))
+        braking_noise = braking_sigma * np.random.randn(current_pulsars) + 1.0
+        psr_array[:,1] = np.power(psr_array[:,2],2)/np.power(bk10,2)/psr_array[:,0] * np.abs(braking_noise)
 # update b
-    psr_array[:,2] = np.sqrt(np.multiply(psr_array[:,0],psr_array[:,1])) * bk10
+        psr_array[:,2] = np.sqrt(np.multiply(psr_array[:,0],psr_array[:,1])) * bk10
+
+
 # update alpha
     psr_array[:,3] = psr_array[:,3]/alpha_update
     rho = 3.0 * np.sqrt(np.pi * 300 / 2.0 / psr_array[:,0] / 3.e5)
     beta = psr_array[:,4] - psr_array[:,3]
 #    print "beta, rho, alpha ", 180./np.pi * beta,180./np.pi * rho, psr_array[:,3]*180./np.pi
 # Check which pulsars are already not observable
+    tot_dead_pulsars = 0
     dead_pulsars = 0
+    top = 0
     dead_index = []
     for j in range(current_pulsars):
         if np.abs(beta[j]) > rho[j]:
             dead_pulsars +=1
             dead_index.append(j)
     psr_array = np.delete(psr_array,dead_index,0)
+    if len(dead_index) > 0 and dead_index[0] == 0:
+        top = 1
     current_pulsars -= dead_pulsars
+    tot_dead_pulsars += dead_pulsars
     dead_pulsars = 0
     dead_index = []
-    if np.mod(time, 100000) == 0:
+    if np.mod(time, 10000) == 0:
         for j in range(current_pulsars):
 # death line test
             if psr_array[j,2]/np.power(psr_array[j,0],2) < 0.17e12:
@@ -128,30 +141,30 @@ for i in range(total_steps):
                 dead_pulsars +=1
 # luminosity test          
             else:
-                L_edot = np.sqrt(4. * np.pi * np.pi * psr_array[j,1] / np.power(psr_array[j,0],3) * 1e9)
+                L_edot = np.sqrt(4. * np.pi * np.pi * psr_array[j,1] / np.power(psr_array[j,0],3) * 1e11)
                 random_number = np.random.uniform(0.,1.,1)
                 if  random_number > L_edot:
                     dead_index.append(j)
                     dead_pulsars +=1
 
+    if len(dead_index) > 0 and dead_index[0] == 0:
+        top = 1
     psr_array = np.delete(psr_array,dead_index,0)
     current_pulsars -= dead_pulsars
+    tot_dead_pulsars += dead_pulsars
 
 
     if current_pulsars == 0:
         break
+    L_edot = np.sqrt(4. * np.pi * np.pi * psr_array[0,1] / np.power(psr_array[0,0],3) * 1e11)
+    random_number = np.random.uniform(0.,1.,1)
+    
 #   add to observed array, only if it hasn't already been removed or it hasn't crossed the death line
-    if dead_pulsars == 0:
+    if  random_number < L_edot and psr_array[0,2]/np.power(psr_array[0,0],2) > 0.17e12 and top == 0:
         dropped_pulsars[i] = psr_array[0,:]
         detected += 1
         psr_array = np.delete(psr_array,0,0)
         current_pulsars-=1
-    else:
-        if dead_index[0] != 0:
-            dropped_pulsars[i] = psr_array[0,:]
-            detected += 1
-            psr_array = np.delete(psr_array,0,0)
-            current_pulsars-=1
 
 #    print "new shape :", psr_array.shape
 #    print psr_array

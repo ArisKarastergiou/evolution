@@ -149,10 +149,11 @@ for i in range(total_steps):
     rho = 3.0 * np.sqrt(np.pi * em_height / 2.0 / psr_array[:,0] / lightspeed)
     beta = psr_array[:,4] - psr_array[:,3]
 
-# Check which pulsars are already not observable
+# Check which pulsars are already not beaming towards you
+# this is the case if beta > rho
+# delete these pulsars from the array
     tot_dead_pulsars = 0
     dead_pulsars = 0
-    top = 0
     dead_index = []
     for j in range(current_pulsars):
         if np.abs(beta[j]) > rho[j]:
@@ -160,14 +161,12 @@ for i in range(total_steps):
             not_beaming +=1
             dead_index.append(j)
     psr_array = np.delete(psr_array,dead_index,0)
-#    if len(dead_index) > 0 and dead_index[0] == 0:
-#        top = 1
     current_pulsars -= dead_pulsars
     tot_dead_pulsars += dead_pulsars
+
+# Scythe through the array looking for pulsars below the death or under-luminous
     dead_pulsars = 0
     dead_index = []
-
-
     if np.mod(time, 10000) == 0:
         for j in range(current_pulsars):
 # death line test
@@ -180,29 +179,22 @@ for i in range(total_steps):
                 dead_index.append(j)
                 dead_pulsars +=1
                 weaks +=1
-
         psr_array = np.delete(psr_array,dead_index,0)
         current_pulsars -= dead_pulsars
         tot_dead_pulsars += dead_pulsars
 
-
     if current_pulsars == 0:
         break
     
-#   add to observed array, only if it hasn't already been removed or it hasn't crossed the death line
-#    if  random_number < L_edot and psr_array[0,2]/np.power(psr_array[0,0],2) > 0.17e12 and psr_array[0,5] == i:
-
-
-# Now test the pulsar we are about to sample
-# death line test
-    
+# Now test the pulsar we are about to detect
+# it must have the same array index as the loop number !!    
     if psr_array[0,5] == i:
+# death line test
         if deathlinetest(psr_array[0,0],psr_array[0,1]):
             dead_index.append(j)
             dead_pulsars +=1
             death_liners +=1
             tot_dead_pulsars += 1
-
 # luminosity test          
         elif luminositytest(psr_array[0,0],psr_array[0,1], Edot_highest, psr_array[0,6]):
             dead_index.append(j)
@@ -213,13 +205,15 @@ for i in range(total_steps):
         else:
             dropped_pulsars[i] = psr_array[0,:]
             detected += 1
-# Top one has either been observed or executed
+# Top one has either been observed or executed so delete it from the pulsar array
         psr_array = np.delete(psr_array,0,0)
         current_pulsars -= 1
-
+# END OF MAIN LOOP
 
 # dropped_pulsars array was same size as original psr_array, but is
 # only populated with detections, so remove blank rows
+# for detected ones, overwrite alpha and zeta with edot and age
+# write to output file
 dropped_index = []
 for i in range(npsrs):
     if dropped_pulsars[i,0] == 0:
@@ -234,6 +228,7 @@ dropped_pulsars[:,3] = edot(dropped_pulsars[:,0],dropped_pulsars[:,1])
 np.savetxt('simulated_ppdot.txt', dropped_pulsars)
 print "Dead info: ", i, "beam: ", not_beaming," death-liners: ", death_liners, "too weak: ", weaks
 
+# plot
 xobs = np.log10(dropped_pulsars[:,0])
 yobs = np.log10(dropped_pulsars[:,1])
 xyobs = np.vstack([xobs,yobs])
@@ -241,8 +236,3 @@ zobs = gaussian_kde(xyobs)(xyobs)
 #fig, ax = plt.subplots()
 ax.scatter(xobs, yobs, c=zobs, s=10, edgecolor='')
 plt.show()
-    
-#plt.plot(np.log10(dropped_pulsars[:,0]),np.log10(dropped_pulsars[:,1]),'.')
-#plt.show()
-
-

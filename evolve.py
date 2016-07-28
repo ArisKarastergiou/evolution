@@ -26,10 +26,11 @@ def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     this_bsurf = np.zeros(npsr)
     this_a = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_zeta = np.arccos(np.random.uniform(0.0, 1.0, npsr))
+    this_index = np.arange(npsr)
     for i in range(npsr):
         this_bsurf[i] = bsurf(p0_array[i], p1_array[i])
 
-    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta))
+    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index))
     return p0p1baz
      
 
@@ -127,8 +128,8 @@ for i in range(total_steps):
             dead_pulsars +=1
             dead_index.append(j)
     psr_array = np.delete(psr_array,dead_index,0)
-    if len(dead_index) > 0 and dead_index[0] == 0:
-        top = 1
+#    if len(dead_index) > 0 and dead_index[0] == 0:
+#        top = 1
     current_pulsars -= dead_pulsars
     tot_dead_pulsars += dead_pulsars
     dead_pulsars = 0
@@ -147,8 +148,8 @@ for i in range(total_steps):
                     dead_index.append(j)
                     dead_pulsars +=1
 
-    if len(dead_index) > 0 and dead_index[0] == 0:
-        top = 1
+#    if len(dead_index) > 0 and dead_index[0] == 0:
+#        top = 1
     psr_array = np.delete(psr_array,dead_index,0)
     current_pulsars -= dead_pulsars
     tot_dead_pulsars += dead_pulsars
@@ -160,7 +161,7 @@ for i in range(total_steps):
     random_number = np.random.uniform(0.,1.,1)
     
 #   add to observed array, only if it hasn't already been removed or it hasn't crossed the death line
-    if  random_number < L_edot and psr_array[0,2]/np.power(psr_array[0,0],2) > 0.17e12 and top == 0:
+    if  random_number < L_edot and psr_array[0,2]/np.power(psr_array[0,0],2) > 0.17e12 and psr_array[0,5] == i:
         dropped_pulsars[i] = psr_array[0,:]
         detected += 1
         psr_array = np.delete(psr_array,0,0)

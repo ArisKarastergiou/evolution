@@ -13,7 +13,7 @@ def bsurf(p0,p1):
     return bsurf
 
 def age(p0,p1):
-    age = p0/2.0/p1/secondsPerYear/1.e6
+    age = np.log10(p0/2.0/p1/secondsPerYear)
     return age
 
 def edot(p0,p1):
@@ -27,11 +27,20 @@ def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     this_a = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_zeta = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_index = np.arange(npsr)
+    this_dice = np.random.uniform(0.0, 1.0, npsr)
     for i in range(npsr):
         this_bsurf[i] = bsurf(p0_array[i], p1_array[i])
 
-    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index))
+    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index, this_dice))
     return p0p1baz
+
+def deathlinetest(p0,p1):
+    return edot(p0,p1) < 30.0
+
+def luminositytest(p0,p1,Edot_highest, random_number):
+    L_edot = np.power(10, 0.5 * (edot (p0,p1) - Edot_highest))
+    return L_edot < random_number
+
      
 
 # Parse arguments
@@ -40,6 +49,7 @@ parser = argparse.ArgumentParser(description='Evolve pulsars on the P-Pdot diagr
 parser.add_argument('-alpha', metavar="<alpha>", type=float, default='45', help='inclination angle in degrees (default = 45)')
 parser.add_argument('-p0', metavar="<p0>", type=float, default='0.020', help='period in s (default = 0.02 s)')
 parser.add_argument('-p1', metavar="<p1>", type=float, default='-12.0', help='log p-dot in s/s (default = -12 )')
+parser.add_argument('-edotmax', metavar="<edotmax>", type=float, default='34.0', help='log of max edot detected (default = 34 )')
 parser.add_argument('-s0', metavar="<s0>", type=float, default='0.0001', help='log sigma of p0 distribution (default = 0.0001)')
 parser.add_argument('-s1', metavar="<s1>", type=float, default='0.0001', help='log sigma of p1 (default = 0.0001 )')
 parser.add_argument('-maxage', metavar="<maxage>", type=float, default='8', help='log max age in years (default = 8 )')
@@ -63,6 +73,7 @@ stepsize = args.stepsize
 npsrs = args.npsr
 iseed = args.iseed
 file = args.file
+Edot_highest = args.edotmax
 
 ppdot_diagram = np.loadtxt(file)
 known_pulsars = ppdot_diagram.shape[0]
@@ -96,8 +107,12 @@ total_steps = npsrs
 dead_pulsars = 0
 detected = 0
 tot_dead_pulsars = 0
+not_beaming = 0
+death_liners = 0
+weaks = 0
+time = 0
 for i in range(total_steps):
-    print "Loop info: ", i, "killed: ", tot_dead_pulsars," remaining: ", current_pulsars, "detected: ", detected
+    print "Loop info: ", i, "killed: ", tot_dead_pulsars," remaining: ", current_pulsars, "detected: ", detected, "time: ", time
     time = (i+1) * birthrate
 
 #    braking_noise = np.full(current_pulsars, 1.0)
@@ -109,15 +124,15 @@ for i in range(total_steps):
         braking_sigma = 5. / (np.sqrt(time))
         braking_noise = braking_sigma * np.random.randn(current_pulsars) + 1.0
         psr_array[:,1] = np.power(psr_array[:,2],2)/np.power(bk10,2)/psr_array[:,0] * np.abs(braking_noise)
+
 # update b
         psr_array[:,2] = np.sqrt(np.multiply(psr_array[:,0],psr_array[:,1])) * bk10
-
 
 # update alpha
     psr_array[:,3] = psr_array[:,3]/alpha_update
     rho = 3.0 * np.sqrt(np.pi * 300 / 2.0 / psr_array[:,0] / 3.e5)
     beta = psr_array[:,4] - psr_array[:,3]
-#    print "beta, rho, alpha ", 180./np.pi * beta,180./np.pi * rho, psr_array[:,3]*180./np.pi
+
 # Check which pulsars are already not observable
     tot_dead_pulsars = 0
     dead_pulsars = 0
@@ -126,6 +141,7 @@ for i in range(total_steps):
     for j in range(current_pulsars):
         if np.abs(beta[j]) > rho[j]:
             dead_pulsars +=1
+            not_beaming +=1
             dead_index.append(j)
     psr_array = np.delete(psr_array,dead_index,0)
 #    if len(dead_index) > 0 and dead_index[0] == 0:
@@ -134,47 +150,73 @@ for i in range(total_steps):
     tot_dead_pulsars += dead_pulsars
     dead_pulsars = 0
     dead_index = []
+
+
     if np.mod(time, 10000) == 0:
         for j in range(current_pulsars):
 # death line test
-            if psr_array[j,2]/np.power(psr_array[j,0],2) < 0.17e12:
+            if deathlinetest(psr_array[j,0],psr_array[j,1]):
                 dead_index.append(j)
                 dead_pulsars +=1
+                death_liners +=1
 # luminosity test          
-            else:
-                L_edot = np.sqrt(4. * np.pi * np.pi * psr_array[j,1] / np.power(psr_array[j,0],3) * 1e11)
-                random_number = np.random.uniform(0.,1.,1)
-                if  random_number > L_edot:
-                    dead_index.append(j)
-                    dead_pulsars +=1
+            elif luminositytest(psr_array[j,0],psr_array[j,1], Edot_highest, psr_array[j,6]):
+                dead_index.append(j)
+                dead_pulsars +=1
+                weaks +=1
 
-#    if len(dead_index) > 0 and dead_index[0] == 0:
-#        top = 1
-    psr_array = np.delete(psr_array,dead_index,0)
-    current_pulsars -= dead_pulsars
-    tot_dead_pulsars += dead_pulsars
+        psr_array = np.delete(psr_array,dead_index,0)
+        current_pulsars -= dead_pulsars
+        tot_dead_pulsars += dead_pulsars
 
 
     if current_pulsars == 0:
         break
-    L_edot = np.sqrt(4. * np.pi * np.pi * psr_array[0,1] / np.power(psr_array[0,0],3) * 1e11)
-    random_number = np.random.uniform(0.,1.,1)
     
 #   add to observed array, only if it hasn't already been removed or it hasn't crossed the death line
-    if  random_number < L_edot and psr_array[0,2]/np.power(psr_array[0,0],2) > 0.17e12 and psr_array[0,5] == i:
-        dropped_pulsars[i] = psr_array[0,:]
-        detected += 1
-        psr_array = np.delete(psr_array,0,0)
-        current_pulsars-=1
+#    if  random_number < L_edot and psr_array[0,2]/np.power(psr_array[0,0],2) > 0.17e12 and psr_array[0,5] == i:
 
-#    print "new shape :", psr_array.shape
-#    print psr_array
+
+# Now test the pulsar we are about to sample
+# death line test
+    
+    if psr_array[0,5] == i:
+        if deathlinetest(psr_array[0,0],psr_array[0,1]):
+            dead_index.append(j)
+            dead_pulsars +=1
+            death_liners +=1
+            tot_dead_pulsars += 1
+
+# luminosity test          
+        elif luminositytest(psr_array[0,0],psr_array[0,1], Edot_highest, psr_array[0,6]):
+            dead_index.append(j)
+            dead_pulsars +=1
+            weaks +=1
+            tot_dead_pulsars += 1
+# Detection!            
+        else:
+            dropped_pulsars[i] = psr_array[0,:]
+            detected += 1
+# Top one has either been observed or executed
+        psr_array = np.delete(psr_array,0,0)
+        current_pulsars -= 1
+
+
+# dropped_pulsars array was same size as original psr_array, but is
+# only populated with detections, so remove blank rows
 dropped_index = []
 for i in range(npsrs):
     if dropped_pulsars[i,0] == 0:
         dropped_index.append(i)
+    else:
+        dropped_pulsars[i,3] = edot(dropped_pulsars[i,0],dropped_pulsars[i,1])
+        dropped_pulsars[i,4] = age(dropped_pulsars[i,0],dropped_pulsars[i,1])
 
 dropped_pulsars = np.delete(dropped_pulsars, dropped_index, 0)
+
+dropped_pulsars[:,3] = edot(dropped_pulsars[:,0],dropped_pulsars[:,1])
+np.savetxt('simulated_ppdot.txt', dropped_pulsars)
+print "Dead info: ", i, "beam: ", not_beaming," death-liners: ", death_liners, "too weak: ", weaks
 
 xobs = np.log10(dropped_pulsars[:,0])
 yobs = np.log10(dropped_pulsars[:,1])

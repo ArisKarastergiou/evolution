@@ -209,6 +209,7 @@ for i in range(total_steps):
         psr_array = np.delete(psr_array,0,0)
         current_pulsars -= 1
 # END OF MAIN LOOP
+print "Dead info: beam: ", not_beaming," death-liners: ", death_liners, "too weak: ", weaks
 
 # dropped_pulsars array was same size as original psr_array, but is
 # only populated with detections, so remove blank rows
@@ -221,12 +222,8 @@ for i in range(npsrs):
     else:
         dropped_pulsars[i,3] = edot(dropped_pulsars[i,0],dropped_pulsars[i,1])
         dropped_pulsars[i,4] = age(dropped_pulsars[i,0],dropped_pulsars[i,1])
-
 dropped_pulsars = np.delete(dropped_pulsars, dropped_index, 0)
-
-dropped_pulsars[:,3] = edot(dropped_pulsars[:,0],dropped_pulsars[:,1])
 np.savetxt('simulated_ppdot.txt', dropped_pulsars)
-print "Dead info: ", i, "beam: ", not_beaming," death-liners: ", death_liners, "too weak: ", weaks
 
 # plot
 xobs = np.log10(dropped_pulsars[:,0])

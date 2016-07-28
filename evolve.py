@@ -10,7 +10,7 @@ from scipy.stats import gaussian_kde
 
 # return magnetic field given P and Pdot
 def bsurf(p0,p1):
-    bsurf = np.sqrt(p0*p1) * bk10
+    bsurf = np.sqrt(np.multiply(p0,p1)) * bk10
     return bsurf
 
 # return log age given P and Pdot
@@ -32,18 +32,18 @@ def edot(p0,p1):
 # 4: zeta
 # 5: index number
 # 6: luminosity cutoff
+# 7: braking noise
 def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     p0_array = np.power(10.,np.random.normal(np.log10(muP0), sigmaP0, npsr))
     p1_array = np.power(10.,np.random.normal(muP1, sigmaP1, npsr))
-    this_bsurf = np.zeros(npsr)
-    for i in range(npsr):
-        this_bsurf[i] = bsurf(p0_array[i], p1_array[i])
+    this_bsurf = bsurf(p0_array, p1_array)
     this_a = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_zeta = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_index = np.arange(npsr)
     this_lmin = np.random.uniform(0.0, 1.0, npsr)
+    braking_noise = np.full(npsrs, 1.0)
 
-    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index, this_lmin))
+    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index, this_lmin, braking_noise))
     return p0p1baz
 
 # Is the edot less than 10^30 ? If so then the pulsar has crossed the death line
@@ -92,10 +92,11 @@ ppdot_diagram = np.loadtxt(file)
 known_pulsars = ppdot_diagram.shape[0]
 x = np.zeros(known_pulsars)
 y = np.zeros(known_pulsars)
+
 for i in range(known_pulsars):
     x[i] = np.log10(ppdot_diagram[i,0])
     y[i] = np.log10(ppdot_diagram[i,1])
-#data = ppdot_diagram
+
 xy = np.vstack([x,y])
 z = gaussian_kde(xy)(xy)
 fig, ax = plt.subplots()
@@ -133,14 +134,14 @@ for i in range(total_steps):
 # update p0:  p0 = p1 * timestep
     psr_array[:,0] += psr_array[:,1] * stepSec
 
-# update p1 only in user-defined multiples of birthrate
+# update p1, change braking index only in user-defined multiples of birthrate
     if np.mod(time, stepsize * birthrate) == 0:
         braking_sigma = 5. / (np.sqrt(time))
-        braking_noise = braking_sigma * np.random.randn(current_pulsars) + 1.0
-        psr_array[:,1] = np.power(psr_array[:,2],2)/np.power(bk10,2)/psr_array[:,0] * np.abs(braking_noise)
+        psr_array[:,7] = braking_sigma * np.random.randn(current_pulsars) + 1.0
+    psr_array[:,1] = np.power(psr_array[:,2],2)/np.power(bk10,2)/psr_array[:,0] * np.abs(psr_array[:,7])
 
 # update magnetic field
-        psr_array[:,2] = np.sqrt(np.multiply(psr_array[:,0],psr_array[:,1])) * bk10
+    psr_array[:,2] = bsurf(psr_array[:,0],psr_array[:,1])
 
 # update alpha by dividing through by the alpha_update constant
 # rho is the cone opening angle = 3 * sqrt (pi/2 * height / P0 / c)

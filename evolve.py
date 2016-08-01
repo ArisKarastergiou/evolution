@@ -23,7 +23,7 @@ def age(p0,p1):
 
 # return log edot given P and Pdot
 def edot(p0,p1):
-    edot = 45.0 + np.log10((4.0*np.pi*np.pi*p1)/(np.power(p0,3)))
+    edot = 45.0 + np.log10((4.0*np.pi*np.pi*p1)/(np.power(p0,3.0)))
     return edot
 
 # Deathline test
@@ -31,13 +31,78 @@ def edot(p0,p1):
 def deathlinetest(p0,p1):
     return edot(p0,p1) < 30.0
 
-# Luminosity test
-# The luminosity is the sqrt(Edot) - above Edot_highest all pulsars are detected
-# returns true if detected
-def luminositytest(p0,p1,random_number):
-    L_edot = np.power(10, 0.5 * (edot (p0,p1) - Edot_highest))
-    return L_edot < random_number
+# Flux test
+# The luminosity is the sqrt(Edot) 
+# The flux is luminosity/distance^2
+# empirically it seems as if at d=1kpc, S=1mJy for Edot = 10^32
+# returns true if not detected
+def luminositytest(p0,p1,dist):
+    fluxconst = 1.0*1.0/np.power(10,16.0)
+    L_edot = np.power(10, 0.5 * (edot(p0,p1)))
+    flux = L_edot / np.power(dist,2.0)
+    flux = fluxconst * flux
+    return flux < 0.1
 
+#---------------------------------------------------------------------
+def distfill(this_dist):
+# create a PDF of distances from earth
+# the PDF has nbin values from 0 to dmax
+# assume Lorimer 2003 distribution
+    drl_const = 64.6
+    drl_index = 2.35
+    drl_sigma = -1.528
+    drl_rmax = 25
+    drl_dstep = 0.25
+    drl_nstep = drl_rmax/drl_dstep
+    drl_nstep = int(drl_nstep)
+    drl_dmax = 50.0
+    drl_histbins = 200
+    drl_zscale = 0.1
+
+# set up the radius bins in step of drl_dstep
+# set up the area between bins constant
+    gcradius = drl_dstep * (np.arange(drl_nstep) + 1.0)
+    gcarea = 2.0 * np.pi * np.power(drl_dstep,2.0) * (np.arange(drl_nstep) + 1.0)
+
+# rho is the density per kpc^2
+# see the equation in Lorimer 2003
+    drl_exp_part = np.exp(gcradius/drl_sigma)
+    drl_rho = drl_const * np.power(gcradius,drl_index)
+    drl_rho = drl_rho * drl_exp_part
+
+# multiply by area to get number of pulsars and normalise
+# this is the PDF
+    npsr_radius = np.multiply(drl_rho,gcarea)
+    npsr_radius = npsr_radius / np.sum(npsr_radius)
+
+# radial distance r
+    r = np.random.choice(gcradius, size=npsrs, p=npsr_radius)
+# angle theta
+    theta = np.random.uniform(0.0,2.0*np.pi,npsrs)
+# compute x,x^2,y,y^2
+    x = np.multiply(r,np.cos(theta))
+    x2 = np.power(x,2.0)
+    y = np.multiply(r,np.sin(theta))
+    y2 = np.power(y,2.0)
+# height z
+    z = drl_zscale * np.random.randn(npsrs)
+    z2 = np.power(z,2.0)
+# earth x distance
+    xearth = x + 8.0
+    x2earth = np.power(xearth,2.0)
+# earth total distance
+    dearth = np.sqrt(x2earth + y2 + z2)
+
+# create PDF
+# NB earthbin has one more element than earthist so delete the first one
+    earthhist,earthbin = np.histogram(dearth,bins=drl_histbins,range=(0.0,drl_dmax))
+    earthbin = np.delete(earthbin,0,0)
+    earthpdf = earthhist.astype(float) / npsrs
+
+    this_dist = np.random.choice(earthbin,size=npsrs,p=earthpdf)
+    return this_dist
+# end of distfill function
+#---------------------------------------------------------------------
 # the dither update function
 def dither_update(psr_array):
 # update p0:  p0 = p1 * timestep
@@ -57,6 +122,33 @@ def dither_update(psr_array):
     psr_array[:,3] = psr_array[:,3]/alpha_update
     return psr_array
 # end of update function
+#---------------------------------------------------------------------
+# the brake update function
+def brake_update(psr_array):
+    global v0_old,v1_old
+# update p0:  p0 = p1 * timestep
+    psr_array[:,0] += psr_array[:,1] * stepSec
+
+# update the braking index -- must be between 2.3 and 7.0
+# then update p1 - formula from Johnston&Galloway
+    extra = 0.15 * np.random.randn(current_pulsars)
+    psr_array[:,7] = psr_array[:,7] + extra
+    psr_array[:,7] = np.clip(psr_array[:,7],2.3,7.0)
+    v0_new = 1. / psr_array[:,0]
+    tempthing = stepSec * (psr_array[:,7] - 1.0)
+    v1_new = -1.0 * v0_new/(tempthing - v0_old/v1_old)
+    psr_array[:,1] =  -1.0 * v1_new * np.power(psr_array[:,0],2)
+    v0_old = v0_new
+    v1_old = v1_new
+
+# update magnetic field
+    psr_array[:,2] = bsurf(psr_array[:,0],psr_array[:,1])
+
+# update alpha by dividing through by the alpha_update constant
+    psr_array[:,3] = psr_array[:,3]/alpha_update
+    return psr_array
+# end of update function
+#---------------------------------------------------------------------
 
 # generate the pulsar array
 # the array has the following columns
@@ -66,7 +158,7 @@ def dither_update(psr_array):
 # 3: alpha
 # 4: zeta
 # 5: index number
-# 6: luminosity cutoff
+# 6: distance
 # 7: braking noise
 def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     p0_array = np.power(10.,np.random.normal(np.log10(muP0), sigmaP0, npsr))
@@ -75,10 +167,11 @@ def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     this_a = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_zeta = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_index = np.arange(npsr)
-    this_lmin = np.random.uniform(0.0, 1.0, npsr)
-    braking_noise = np.full(npsrs, 1.0)
+    this_dist = np.zeros(npsr)
+    this_dist = distfill(this_dist)
+    braking_noise = np.full(npsrs, 3.0)
 
-    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index, this_lmin, braking_noise))
+    p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index, this_dist, braking_noise))
     return p0p1baz
 
 # Parse arguments
@@ -129,11 +222,14 @@ ax.scatter(x, y, c=z, s=10, edgecolor='')
 secondsPerYear = 365.25*86400.0
 lightspeed = 299792.0
 em_height = 300.0
+rho_const = 3.0 * np.sqrt(np.pi * em_height / 2.0 / lightspeed)
 alpha_decay = np.power(10.,7) 
 alpha_update = np.exp(birthrate / alpha_decay)
 
 stepSec = birthrate * secondsPerYear
 psr_array = generatePSRs(npsrs, p0_0, p1_0, s0_0, s1_0)
+v0_old = 1./psr_array[:,0]
+v1_old = -1.0 * psr_array[:,1] / np.power(psr_array[:,0],2)
 observed_pulsars = np.zeros(psr_array.shape)
 current_pulsars = npsrs
 total_steps = npsrs
@@ -151,10 +247,12 @@ for i in range(total_steps):
     time = (i+1) * birthrate
     tot_dead_pulsars = 0
 
-    psr_array = dither_update(psr_array)
+#    psr_array = dither_update(psr_array)
+    psr_array = brake_update(psr_array)
+
 # rho is the cone opening angle = 3 * sqrt (pi/2 * height / P0 / c)
 # beta = abs(zeta - alpha) - absolute value to check for +/- rho
-    rho = 3.0 * np.sqrt(np.pi * em_height / 2.0 / psr_array[:,0] / lightspeed)
+    rho = rho_const / np.sqrt(psr_array[:,0])
     beta = np.abs(psr_array[:,4] - psr_array[:,3])
 
 # Check which pulsars are already not beaming towards you
@@ -168,6 +266,8 @@ for i in range(total_steps):
             dead_index.append(j)
 # delete these pulsars from the array
     psr_array = np.delete(psr_array,dead_index,0)
+    v0_old = np.delete(v0_old,dead_index,0)
+    v1_old = np.delete(v1_old,dead_index,0)
     current_pulsars -= dead_pulsars
     tot_dead_pulsars += dead_pulsars
 
@@ -188,6 +288,8 @@ for i in range(total_steps):
                 weaks +=1
 # delete these pulsars from the array
         psr_array = np.delete(psr_array,dead_index,0)
+        v0_old = np.delete(v0_old,dead_index,0)
+        v1_old = np.delete(v1_old,dead_index,0)
         current_pulsars -= dead_pulsars
         tot_dead_pulsars += dead_pulsars
 
@@ -215,6 +317,8 @@ for i in range(total_steps):
             detected += 1
 # Top one has either been observed or executed so delete it from the pulsar array
         psr_array = np.delete(psr_array,0,0)
+        v0_old = np.delete(v0_old,0,0)
+        v1_old = np.delete(v1_old,0,0)
         current_pulsars -= 1
 # END OF MAIN LOOP
 print "Birthrate (yr): ", birthrate, "stepsize: ", stepsize," npsrs: ", npsrs, " Lmin: ", Edot_highest

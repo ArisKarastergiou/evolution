@@ -34,10 +34,10 @@ def deathlinetest(p0,p1):
 # Flux test
 # The luminosity is the sqrt(Edot) 
 # The flux is luminosity/distance^2
-# empirically it seems as if at d=1kpc, S=1mJy for Edot = 10^32
+# empirically it seems as if at d=2kpc, S=1mJy for Edot = 10^32
 # returns true if not detected
 def luminositytest(p0,p1,dist):
-    fluxconst = 1.0*1.0/np.power(10,16.0)
+    fluxconst = 2.0*2.0/np.power(10,16.0)
     L_edot = np.power(10, 0.5 * (edot(p0,p1)))
     flux = L_edot / np.power(dist,2.0)
     flux = fluxconst * flux
@@ -105,8 +105,8 @@ def distfill(this_dist):
 #---------------------------------------------------------------------
 # the dither update function
 def dither_update(psr_array):
-# update p0:  p0 = p1 * timestep
-    psr_array[:,0] += psr_array[:,1] * stepSec
+# update p0:  p0 = p1 * delta T
+    psr_array[:,0] += psr_array[:,1] * update_rate_sec
 
 # update p1, change braking index only in user-defined multiples of birthrate
 # new p1 = B^2 / P0 * dither
@@ -124,18 +124,18 @@ def dither_update(psr_array):
 # end of update function
 #---------------------------------------------------------------------
 # the brake update function
-def brake_update(psr_array):
+def brake_update(psr_array,deltaT):
     global v0_old,v1_old
-# update p0:  p0 = p1 * timestep
-    psr_array[:,0] += psr_array[:,1] * stepSec
+# update p0:  p0 = p1 * deltaT
+    psr_array[:,0] += psr_array[:,1] * deltaT
 
 # update the braking index -- must be between 2.3 and 7.0
 # then update p1 - formula from Johnston&Galloway
-    extra = 0.15 * np.random.randn(current_pulsars)
+    extra = 0.25 * np.random.randn(current_pulsars)
     psr_array[:,7] = psr_array[:,7] + extra
     psr_array[:,7] = np.clip(psr_array[:,7],2.3,7.0)
     v0_new = 1. / psr_array[:,0]
-    tempthing = stepSec * (psr_array[:,7] - 1.0)
+    tempthing = deltaT * (psr_array[:,7] - 1.0)
     v1_new = -1.0 * v0_new/(tempthing - v0_old/v1_old)
     psr_array[:,1] =  -1.0 * v1_new * np.power(psr_array[:,0],2)
     v0_old = v0_new
@@ -149,8 +149,7 @@ def brake_update(psr_array):
     return psr_array
 # end of update function
 #---------------------------------------------------------------------
-
-# generate the pulsar array
+# generate the pulsar array function
 # the array has the following columns
 # 0: period 
 # 1: period derivative 
@@ -166,42 +165,56 @@ def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     this_bsurf = bsurf(p0_array, p1_array)
     this_a = np.arccos(np.random.uniform(0.0, 1.0, npsr))
     this_zeta = np.arccos(np.random.uniform(0.0, 1.0, npsr))
-    this_index = np.arange(npsr)
+    this_index = np.arange(npsr,dtype=int)
     this_dist = np.zeros(npsr)
     this_dist = distfill(this_dist)
     braking_noise = np.full(npsrs, 3.0)
 
     p0p1baz = np.column_stack((p0_array, p1_array, this_bsurf, this_a, this_zeta, this_index, this_dist, braking_noise))
     return p0p1baz
-
+# end of generate function
+#---------------------------------------------------------------------
+# MAIN CODE STARTS HERE
 # Parse arguments
 parser = argparse.ArgumentParser(description='Evolve pulsars on the P-Pdot diagram')
 parser.add_argument('-alpha', metavar="<alpha>", type=float, default='45', help='inclination angle in degrees (default = 45)')
 parser.add_argument('-p0', metavar="<p0>", type=float, default='0.020', help='period in s (default = 0.02 s)')
 parser.add_argument('-p1', metavar="<p1>", type=float, default='-12.0', help='log p-dot in s/s (default = -12 )')
-parser.add_argument('-edotmax', metavar="<edotmax>", type=float, default='34.0', help='log of max edot detected (default = 34 )')
+#parser.add_argument('-edotmax', metavar="<edotmax>", type=float, default='34.0', help='log of max edot detected (default = 34 )')
 parser.add_argument('-s0', metavar="<s0>", type=float, default='0.0001', help='log sigma of p0 distribution (default = 0.0001)')
 parser.add_argument('-s1', metavar="<s1>", type=float, default='0.0001', help='log sigma of p1 (default = 0.0001 )')
-parser.add_argument('-maxage', metavar="<maxage>", type=float, default='8', help='log max age in years (default = 8 )')
-parser.add_argument('-birthrate', metavar="<birthrate>", type=float, default='100', help='birth rate in years (default = 100 )')
-parser.add_argument('-stepsize', metavar="<stepsize>", type=float, default='1', help='update step in units of birthrate (default = 1 )')
-parser.add_argument('-npsr', metavar="<npsr>", type=int, default='100000', help='total number of pulsars to generate (default = 100000 )')
+parser.add_argument('-timestep', metavar="<timestep>", type=int, default='10', help='time step in years (default = 10 )')
+parser.add_argument('-maxtime', metavar="<maxtime>", type=int, default='8', help='log max age in years (default = 8 )')
+parser.add_argument('-birthrate', metavar="<birthrate>", type=int, default='100', help='birth rate in years (default = 100 )')
+parser.add_argument('-update', metavar="<update_rate>", type=int, default='100', help='update step in years (default = 100 )')
+#parser.add_argument('-npsr', metavar="<npsr>", type=int, default='100000', help='total number of pulsars to generate (default = 100000 )')
 parser.add_argument('-iseed', metavar="<iseed>", type=int, default='4', help='integer seed for a pseudo-random number generator (default = 4)')
 parser.add_argument('-file', metavar="<file>", default='ppdot.dat', help='ppdot file (default = psr.list)')
 
+secondsPerYear = 365.25*86400.0
 args = parser.parse_args()
 alpha = args.alpha
 p0_0 = args.p0
 p1_0 = args.p1
 s0_0 = args.s0
 s1_0 = args.s1
-maxage = args.maxage
+maxtime = args.maxtime
+timestep = args.timestep
 birthrate = args.birthrate
-stepsize = args.stepsize
-npsrs = args.npsr
+update_rate = args.update
+update_rate_sec = update_rate * secondsPerYear
+#npsrs = args.npsr
+npsrs = np.power(10,maxtime)/birthrate
+total_steps = np.power(10,maxtime)/timestep
 iseed = args.iseed
 file = args.file
-Edot_highest = args.edotmax
+print "maxtime ",maxtime," birthrate ",birthrate," update rate ",update_rate," npsrs ",npsrs
+if np.mod(birthrate,timestep) != 0:
+   sys.exit("Error: timestep must divide evenly into birthrate !!")
+if np.mod(update_rate,timestep) != 0:
+   sys.exit("Error: timestep must divide evenly into update rate !!")
+# the remaining time for the "observe" step in seconds
+leftover_step = np.remainder(birthrate,update_rate) * secondsPerYear
 
 # the observed p-pdot diagram read in from file generated by psrcat and plotted
 ppdot_diagram = np.loadtxt(file)
@@ -216,65 +229,68 @@ z = gaussian_kde(xy)(xy)
 fig, ax = plt.subplots()
 ax.scatter(x, y, c=z, s=10, edgecolor='')
 
+# USEFUL VALUES
 # em_height is the emission height in km
+# rho_const because rho = 3.0 * sqrt((pi^2 * height)/(2 P0 c))
 # alpha_decay is the alpha decay time in years
+# taken from Weltevrede & Johnston (7e7 years)
 # alpha update is the fractional change in alpha per birthrate
-secondsPerYear = 365.25*86400.0
 lightspeed = 299792.0
 em_height = 300.0
 rho_const = 3.0 * np.sqrt(np.pi * em_height / 2.0 / lightspeed)
-alpha_decay = np.power(10.,7) 
-alpha_update = np.exp(birthrate / alpha_decay)
+alpha_decay = np.power(10.,7.845) 
+alpha_update = np.exp(update_rate / alpha_decay)
 
-stepSec = birthrate * secondsPerYear
+#generate the pulsar array
 psr_array = generatePSRs(npsrs, p0_0, p1_0, s0_0, s1_0)
 v0_old = 1./psr_array[:,0]
 v1_old = -1.0 * psr_array[:,1] / np.power(psr_array[:,0],2)
 observed_pulsars = np.zeros(psr_array.shape)
 current_pulsars = npsrs
-total_steps = npsrs
 
+# set stuff to zero before commencing on loop
 dead_pulsars = 0
 detected = 0
-tot_dead_pulsars = 0
 not_beaming = 0
 death_liners = 0
 weaks = 0
 time = 0
+psrcount = 0
 # START MAIN LOOP
 for i in range(total_steps):
-    print "Loop info: ", i, "killed: ", tot_dead_pulsars," remaining: ", current_pulsars, "detected: ", detected, "time: ", time
-    time = (i+1) * birthrate
     tot_dead_pulsars = 0
+    time = (i+1) * timestep
 
+# check to see if it is time for an update
+    if np.mod(time, update_rate) == 0:
 #    psr_array = dither_update(psr_array)
-    psr_array = brake_update(psr_array)
+        psr_array = brake_update(psr_array,update_rate_sec)
 
 # rho is the cone opening angle = 3 * sqrt (pi/2 * height / P0 / c)
 # beta = abs(zeta - alpha) - absolute value to check for +/- rho
-    rho = rho_const / np.sqrt(psr_array[:,0])
-    beta = np.abs(psr_array[:,4] - psr_array[:,3])
+        rho = rho_const / np.sqrt(psr_array[:,0])
+        beta = np.abs(psr_array[:,4] - psr_array[:,3])
 
 # Check which pulsars are already not beaming towards you
 # this is the case if beta > rho
-    dead_pulsars = 0
-    dead_index = []
-    for j in range(current_pulsars):
-        if beta[j] > rho[j]:
-            dead_pulsars +=1
-            not_beaming +=1
-            dead_index.append(j)
+        dead_pulsars = 0
+        dead_index = []
+        for j in range(current_pulsars):
+            if beta[j] > rho[j]:
+                dead_pulsars +=1
+                not_beaming +=1
+                dead_index.append(j)
 # delete these pulsars from the array
-    psr_array = np.delete(psr_array,dead_index,0)
-    v0_old = np.delete(v0_old,dead_index,0)
-    v1_old = np.delete(v1_old,dead_index,0)
-    current_pulsars -= dead_pulsars
-    tot_dead_pulsars += dead_pulsars
+        psr_array = np.delete(psr_array,dead_index,0)
+        v0_old = np.delete(v0_old,dead_index,0)
+        v1_old = np.delete(v1_old,dead_index,0)
+        current_pulsars -= dead_pulsars
+        tot_dead_pulsars += dead_pulsars
 
 # Scythe through the array looking for pulsars below the death or under-luminous
-    dead_pulsars = 0
-    dead_index = []
     if np.mod(time, 10000) == 0:
+        dead_pulsars = 0
+        dead_index = []
         for j in range(current_pulsars):
 # death line test
             if deathlinetest(psr_array[j,0],psr_array[j,1]):
@@ -295,33 +311,47 @@ for i in range(total_steps):
 
     if current_pulsars == 0:
         break
-    
-# Now test the pulsar we are about to detect
-# it must have the same array index as the loop number !!    
-    if psr_array[0,5] == i:
+
+# Now test the pulsar we are about to observe (or not)
+# once every birthrate years
+    if np.mod(time, birthrate) == 0:
+# it must have the same array index as the pulsar number !!    
+        if psr_array[0,5] == psrcount:
+# must also update (nb leftover_step can be zero)
+            brake_update(psr_array[0], leftover_step)
+            rho = rho_const / np.sqrt(psr_array[0,0])
+            beta = np.abs(psr_array[0,4] - psr_array[0,3])
+# beta test
+            if beta > rho:
+                dead_pulsars +=1
+                not_beaming +=1
 # death line test
-        if deathlinetest(psr_array[0,0],psr_array[0,1]):
-            dead_index.append(j)
-            dead_pulsars +=1
-            death_liners +=1
-            tot_dead_pulsars += 1
+            elif deathlinetest(psr_array[0,0],psr_array[0,1]):
+                dead_index.append(j)
+                dead_pulsars += 1
+                death_liners += 1
+                tot_dead_pulsars += 1
 # luminosity test          
-        elif luminositytest(psr_array[0,0],psr_array[0,1],psr_array[0,6]):
-            dead_index.append(j)
-            dead_pulsars +=1
-            weaks +=1
-            tot_dead_pulsars += 1
+            elif luminositytest(psr_array[0,0],psr_array[0,1],psr_array[0,6]):
+                dead_index.append(j)
+                dead_pulsars += 1
+                weaks += 1
+                tot_dead_pulsars += 1
 # Detection!            
-        else:
-            observed_pulsars[i] = psr_array[0,:]
-            detected += 1
+            else:
+                observed_pulsars[psrcount] = psr_array[0,:]
+                detected += 1
 # Top one has either been observed or executed so delete it from the pulsar array
-        psr_array = np.delete(psr_array,0,0)
-        v0_old = np.delete(v0_old,0,0)
-        v1_old = np.delete(v1_old,0,0)
-        current_pulsars -= 1
+            psr_array = np.delete(psr_array,0,0)
+            v0_old = np.delete(v0_old,0,0)
+            v1_old = np.delete(v1_old,0,0)
+            current_pulsars -= 1
+# update the pulsar count and print loop info
+        psrcount += 1
+        print "Loop info: ", i, "killed: ", tot_dead_pulsars," remaining: ", current_pulsars, "detected: ", detected, "time: ", time
 # END OF MAIN LOOP
-print "Birthrate (yr): ", birthrate, "stepsize: ", stepsize," npsrs: ", npsrs, " Lmin: ", Edot_highest
+# -----------------------
+print "Maxtime (yr): ",maxtime, "Birthrate (yr): ", birthrate, "Update rate (yr): ", update_rate," npsrs: ", npsrs
 print "Dead info: beam: ", not_beaming," death-liners: ", death_liners, "too weak: ", weaks
 
 # observed_pulsars array was same size as original psr_array, but is

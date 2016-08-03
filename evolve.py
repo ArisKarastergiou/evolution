@@ -125,21 +125,23 @@ def dither_update(psr_array):
 #---------------------------------------------------------------------
 # the brake update function
 def brake_update(psr_array,deltaT):
-    global v0_old,v1_old
+    v0_old = 1. / psr_array[:,0]
+    v1_old = -1.0 * psr_array[:,1] * np.power(v0_old,2)
+
 # update p0:  p0 = p1 * deltaT
     psr_array[:,0] += psr_array[:,1] * deltaT
 
 # update the braking index -- must be between 2.3 and 7.0
 # then update p1 - formula from Johnston&Galloway
-    extra = 0.25 * np.random.randn(current_pulsars)
+    number_processing = psr_array.shape[0]
+    print "Updating ", number_processing, " source(s)"
+    extra = 0.25 * np.random.randn(number_processing)
     psr_array[:,7] = psr_array[:,7] + extra
     psr_array[:,7] = np.clip(psr_array[:,7],2.3,7.0)
     v0_new = 1. / psr_array[:,0]
     tempthing = deltaT * (psr_array[:,7] - 1.0)
-    v1_new = -1.0 * v0_new/(tempthing - v0_old/v1_old)
+    v1_new = -1.0 * v0_new/(tempthing - v0_old[:number_processing]/v1_old[:number_processing])
     psr_array[:,1] =  -1.0 * v1_new * np.power(psr_array[:,0],2)
-    v0_old = v0_new
-    v1_old = v1_new
 
 # update magnetic field
     psr_array[:,2] = bsurf(psr_array[:,0],psr_array[:,1])
@@ -243,8 +245,6 @@ alpha_update = np.exp(update_rate / alpha_decay)
 
 #generate the pulsar array
 psr_array = generatePSRs(npsrs, p0_0, p1_0, s0_0, s1_0)
-v0_old = 1./psr_array[:,0]
-v1_old = -1.0 * psr_array[:,1] / np.power(psr_array[:,0],2)
 observed_pulsars = np.zeros(psr_array.shape)
 current_pulsars = npsrs
 
@@ -282,8 +282,6 @@ for i in range(total_steps):
                 dead_index.append(j)
 # delete these pulsars from the array
         psr_array = np.delete(psr_array,dead_index,0)
-        v0_old = np.delete(v0_old,dead_index,0)
-        v1_old = np.delete(v1_old,dead_index,0)
         current_pulsars -= dead_pulsars
         tot_dead_pulsars += dead_pulsars
 
@@ -304,8 +302,6 @@ for i in range(total_steps):
                 weaks +=1
 # delete these pulsars from the array
         psr_array = np.delete(psr_array,dead_index,0)
-        v0_old = np.delete(v0_old,dead_index,0)
-        v1_old = np.delete(v1_old,dead_index,0)
         current_pulsars -= dead_pulsars
         tot_dead_pulsars += dead_pulsars
 
@@ -318,33 +314,34 @@ for i in range(total_steps):
 # it must have the same array index as the pulsar number !!    
         if psr_array[0,5] == psrcount:
 # must also update (nb leftover_step can be zero)
-            brake_update(psr_array[0], leftover_step)
-            rho = rho_const / np.sqrt(psr_array[0,0])
-            beta = np.abs(psr_array[0,4] - psr_array[0,3])
+            to_observe = psr_array[0][np.newaxis,:]
+            brake_update(to_observe, leftover_step)
+            to_observe = to_observe.reshape(psr_array.shape[1])
+#            rho = rho_const / np.sqrt(psr_array[0,0])
+            rho = rho_const / np.sqrt(to_observe[0])
+#            beta = np.abs(psr_array[0,4] - psr_array[0,3])
+            beta = np.abs(to_observe[4] - to_observe[3])
 # beta test
             if beta > rho:
                 dead_pulsars +=1
                 not_beaming +=1
+                tot_dead_pulsars += 1
 # death line test
-            elif deathlinetest(psr_array[0,0],psr_array[0,1]):
-                dead_index.append(j)
+            elif deathlinetest(to_observe[0],to_observe[1]):
                 dead_pulsars += 1
                 death_liners += 1
                 tot_dead_pulsars += 1
 # luminosity test          
-            elif luminositytest(psr_array[0,0],psr_array[0,1],psr_array[0,6]):
-                dead_index.append(j)
+            elif luminositytest(to_observe[0],to_observe[1],to_observe[6]):
                 dead_pulsars += 1
                 weaks += 1
                 tot_dead_pulsars += 1
 # Detection!            
             else:
-                observed_pulsars[psrcount] = psr_array[0,:]
+                observed_pulsars[psrcount] = to_observe
                 detected += 1
 # Top one has either been observed or executed so delete it from the pulsar array
             psr_array = np.delete(psr_array,0,0)
-            v0_old = np.delete(v0_old,0,0)
-            v1_old = np.delete(v1_old,0,0)
             current_pulsars -= 1
 # update the pulsar count and print loop info
         psrcount += 1

@@ -39,9 +39,8 @@ def deathlinetest(p0,p1):
 def luminositytest(p0,p1,dist):
     fluxconst = 2.0*2.0/np.power(10,16.0)
     L_edot = np.power(10, 0.5 * (edot(p0,p1)))
-    flux = L_edot / np.power(dist,2.0)
-    flux = fluxconst * flux
-    return flux < 0.1
+    flux = fluxconst * L_edot / np.power(dist,2.0)
+    return flux < 0.25
 
 #---------------------------------------------------------------------
 def distfill(this_dist):
@@ -125,6 +124,12 @@ def dither_update(psr_array):
 #---------------------------------------------------------------------
 # the brake update function
 def brake_update(psr_array,deltaT):
+    number_processing = psr_array.shape[0]
+    brake_sigma = 0.25
+    brake_mean = np.zeros(number_processing)
+# this line pulls the braking index back towards 3.0
+#    brake_mean = (3.0 - psr_array[:,7])/100.0
+# record the freq and freq derivative before update
     v0_old = 1. / psr_array[:,0]
     v1_old = -1.0 * psr_array[:,1] * np.power(v0_old,2)
 
@@ -133,11 +138,10 @@ def brake_update(psr_array,deltaT):
 
 # update the braking index -- must be between 2.3 and 7.0
 # then update p1 - formula from Johnston&Galloway
-    number_processing = psr_array.shape[0]
-    print "Updating ", number_processing, " source(s)"
-    extra = 0.25 * np.random.randn(number_processing)
+#    print "Updating ", number_processing, " source(s)"
+    extra = (brake_sigma * np.random.randn(number_processing)) + brake_mean
     psr_array[:,7] = psr_array[:,7] + extra
-    psr_array[:,7] = np.clip(psr_array[:,7],2.3,7.0)
+    psr_array[:,7] = np.clip(psr_array[:,7],0.7,8.5)
     v0_new = 1. / psr_array[:,0]
     tempthing = deltaT * (psr_array[:,7] - 1.0)
     v1_new = -1.0 * v0_new/(tempthing - v0_old[:number_processing]/v1_old[:number_processing])
@@ -160,7 +164,7 @@ def brake_update(psr_array,deltaT):
 # 4: zeta
 # 5: index number
 # 6: distance
-# 7: braking noise
+# 7: braking index
 def generatePSRs(npsr, muP0, muP1, sigmaP0, sigmaP1):
     p0_array = np.power(10.,np.random.normal(np.log10(muP0), sigmaP0, npsr))
     p1_array = np.power(10.,np.random.normal(muP1, sigmaP1, npsr))
@@ -286,7 +290,7 @@ for i in range(total_steps):
         tot_dead_pulsars += dead_pulsars
 
 # Scythe through the array looking for pulsars below the death or under-luminous
-    if np.mod(time, 10000) == 0:
+    if np.mod(time, 100*update_rate) == 0:
         dead_pulsars = 0
         dead_index = []
         for j in range(current_pulsars):
@@ -343,13 +347,13 @@ for i in range(total_steps):
 # Top one has either been observed or executed so delete it from the pulsar array
             psr_array = np.delete(psr_array,0,0)
             current_pulsars -= 1
+            print "Time: ", time, " beaming: ", not_beaming," weak ", weaks, " dead ",death_liners, " remaining: ", current_pulsars, "detected: ", detected
 # update the pulsar count and print loop info
         psrcount += 1
-        print "Loop info: ", i, "killed: ", tot_dead_pulsars," remaining: ", current_pulsars, "detected: ", detected, "time: ", time
 # END OF MAIN LOOP
 # -----------------------
 print "Maxtime (yr): ",maxtime, "Birthrate (yr): ", birthrate, "Update rate (yr): ", update_rate," npsrs: ", npsrs
-print "Dead info: beam: ", not_beaming," death-liners: ", death_liners, "too weak: ", weaks
+print "Dead info: beaming: ", not_beaming," --- death-liners: ", death_liners, "--- too weak: ", weaks
 
 # observed_pulsars array was same size as original psr_array, but is
 # only populated with detections, so remove blank rows
